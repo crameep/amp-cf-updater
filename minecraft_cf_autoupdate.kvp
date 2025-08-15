@@ -1,59 +1,97 @@
-[GenericModule.Meta]
-AppConfigId = 6f7a9f3b-4b94-4a3a-9a2f-9b57d4b9c1ee   ; <— use your own GUID if you want
-DisplayName = Minecraft (CurseForge Auto-Update)
-Description = CurseForge Server Files auto-install/update with rules, JAR selection, and self-bootstrap.
-OS = Linux
-Arch = x86_64
-Author = crameep
-URL = https://github.com/crameep/amp-cf-updater
-DisplayImageSource = https://raw.githubusercontent.com/CubeCoders/AMPTemplates/main/icons/minecraft.png
-ConfigManifest = minecraft_cf_autoupdateconfig.json
-ConfigRoot = minecraft_cf_autoupdate.kvp
-MinAMPVersion = 2.4.6.4
-ContainerPolicy = Supported
-DockerRequired = False
-ConfigVersion = 1
+Meta.DisplayName=Minecraft (CurseForge Auto-Update)
+Meta.Description=CurseForge Server Files auto-install/update with rules, JAR selection, and self-bootstrap.
+Meta.OS=Linux
+Meta.Arch=x86_64
+Meta.Author=crameep
+Meta.URL=https://github.com/crameep/amp-cf-updater
+Meta.DisplayImageSource=https://raw.githubusercontent.com/CubeCoders/AMPTemplates/main/icons/minecraft.png
+Meta.ConfigManifest=minecraft_cf_autoupdateconfig.json
+Meta.ConfigRoot=minecraft_cf_autoupdate.kvp
+Meta.MinAMPVersion=2.4.6.4
+Meta.SpecificDockerImage=
+Meta.DockerRequired=False
+Meta.DockerBaseReadOnly=False
+Meta.ContainerPolicy=Supported
+Meta.ContainerPolicyReason=
+Meta.Prerequsites=[]
+Meta.ConfigReleaseState=NotSpecified
+Meta.AppConfigId=6f7a9f3b-4b94-4a3a-9a2f-9b57d4b9c1ee
+Meta.ConfigVersion=1
+Meta.ReleaseNotes=
+Meta.BreakingReleaseNotes=
 
-[GenericModule.App]
-Name = Minecraft (CurseForge Auto-Update)
-Author = "AMP CF Generic"
-Version = 1.0.5
-OS = linux
-StopCommand = "console_command stop"
-ReadyPattern = "Done \\([0-9\\.]+s\\)!|Time elapsed: [0-9]+"
-QueryType = "Minecraft"
-LogDirectory = "."
+; ---- App section (flat style, like your FiveM example) ----
+App.DisplayName=Minecraft (CurseForge Auto-Update)
+App.RootDir=./
+App.BaseDirectory=./
+App.WorkingDir=.
+; Start via bash -> start script
+App.ExecutableLinux=/bin/bash
+App.LinuxCommandLineArgs=./scripts/start-detected.sh
+App.ExecutableWin=
+App.WindowsCommandLineArgs=
+; Update via UpdateSources include (bootstrap + cf-sync)
+App.UpdateSources=@IncludeJson[minecraft_cf_autoupdateupdates.json]
 
-[GenericModule.App.Ports]
-GamePort = 25565/tcp
-RconPort = 25575/tcp
+; Ports (Game 25565/TCP, RCON 25575/TCP)
+App.Ports=@IncludeJson[minecraft_cf_autoupdateports.json]
+App.AdminPortRef=RconPort
+App.PrimaryApplicationPortRef=GamePort
+App.UniversalSleepApplicationUDPPortRef=0
+App.UniversalSleepSteamQueryPortRef=0
 
-[GenericModule.App.Executable]
-# Self-bootstrap: if scripts are missing, pull them from your GitHub, then run the updater.
-UpdateExecutable = "/bin/bash -lc '[[ -x ./scripts/cf-sync.sh && -x ./scripts/start-detected.sh ]] || ( mkdir -p scripts && curl -fsSL https://raw.githubusercontent.com/crameep/amp-cf-updater/main/scripts/cf-sync.sh -o scripts/cf-sync.sh && curl -fsSL https://raw.githubusercontent.com/crameep/amp-cf-updater/main/scripts/start-detected.sh -o scripts/start-detected.sh && chmod +x scripts/*.sh ); /bin/bash ./scripts/cf-sync.sh'"
-StartExecutable  = "/bin/bash ./scripts/start-detected.sh"
+App.CommandLineArgs={{$PlatformArgs}} {{$FormattedArgs}}
+App.CommandLineParameterFormat=+{0} {1}
+App.CommandLineParameterDelimiter= 
+App.ExitMethod=String
+App.ExitTimeout=30
+App.ExitString=stop
+App.ExitFile=app_exit.lck
+App.HasWriteableConsole=True
+App.HasReadableConsole=True
+App.SupportsLiveSettingsChanges=False
+App.LiveSettingChangeCommandFormat=set {0} "{1}"
+App.ApplicationIPBinding=0.0.0.0
+App.MaxUsers=0
+App.UseRandomAdminPassword=False
+App.PersistRandomPassword=False
+App.RemoteAdminPassword=
+App.AdminMethod=STDIO
+App.AdminLoginTransform=None
+App.LoginTransformPrefix=
+App.RCONConnectDelaySeconds=5
+App.RCONConnectRetrySeconds=5
+App.RCONHeartbeatMinutes=0
+App.RCONHeartbeatCommand=ping
+App.TelnetLoginFormat={0}
+App.SteamUpdateAnonymousLogin=True
+App.SteamForceLoginPrompt=False
+App.RapidStartup=False
+App.MonitorChildProcess=False
+App.DumpFullChildProcessTree=False
+App.MonitorChildProcessWaitMs=100
+App.MonitorChildProcessName=
+App.SupportsUniversalSleep=False
+App.WakeupMode=Any
+App.ApplicationReadyMode=RegexMatch
 
-[GenericModule.App.Environment]
-JAVA_PATH = "java"
-Xms = "4G"
-Xmx = "8G"
-CF_API_KEY = ""
-CF_PAGE_URL = ""
-CF_SLUG = ""
-CF_FILE_ID = ""
-SYNC_PRUNE = "true"
-SYNC_EXCLUDE_GLOBS = "world*,server.properties,ops.json,whitelist.json,banned-*.json,config,local,journeymap,eula.txt"
-EXCLUDE_MOD_IDS = ""
-INCLUDE_MOD_IDS = ""
-REMOVE_PATHS = "kubejs,defaultconfigs,mods,config"
-REMOVE_LIBRARIES_IF_LOADER_CHANGED = "true"
-PRESERVE_PATHS = "world,world_nether,world_the_end,server.properties,ops.json,whitelist.json,banned-players.json,banned-ips.json,config,local,journeymap,eula.txt"
-RULES_JSON = "{\"delete_when\":[{\"predicate\":\"loader_changed\",\"paths\":[\"libraries\"]}], \"delete_always\":[], \"transform\":[]}"
-PRE_UPDATE_HOOK = ""
-POST_UPDATE_HOOK = ""
-DRY_RUN = "false"
-JAVA_ARGS = "-XX:+UseG1GC -Dfile.encoding=UTF-8"
-SERVER_JAR = ""
-JAR_GLOB = ""
-JAR_PRIORITY = "libraries-first"
-SNAPSHOT_ENABLED = "true"
+; Match typical Minecraft “server ready” lines
+Console.FilterMatchRegex=
+Console.FilterMatchReplacement=
+Console.ThrowawayMessageRegex=
+Console.AppReadyRegex=Done \\([0-9\\.]+s\\)!|Time elapsed: [0-9]+
+Console.UserJoinRegex=^$
+Console.UserLeaveRegex=^$
+Console.UserChatRegex=^$
+Console.UpdateAvailableRegex=
+Console.MetricsRegex=
+Console.SuppressLogAtStart=False
+Console.ActivateLogRegex=
+Console.UserActions={}
+
+Limits.SleepMode=True
+Limits.SleepOnStart=False
+Limits.SleepDelayMinutes=5
+Limits.DozeDelay=2
+Limits.AutoRetryCount=2
+Limits.SleepStartThresholdSeconds=25
