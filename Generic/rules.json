@@ -1,0 +1,12 @@
+{
+  "delete_when": [
+    {
+      "predicate": "loader_changed",
+      "paths": [
+        "libraries"
+      ]
+    }
+  ],
+  "delete_always": [],
+  "transform": []
+}
