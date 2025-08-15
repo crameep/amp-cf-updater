@@ -4,93 +4,59 @@ set -euo pipefail
 JAVA="${JAVA_PATH:-java}"
 XMS="${Xms:-4G}"
 XMX="${Xmx:-8G}"
-ARGS="${JAVA_ARGS:-}"
+ARGS="${JAVA_ARGS:-"-XX:+UseG1GC -Dfile.encoding=UTF-8"}"
 
-SERVER_JAR="${SERVER_JAR:-}"   # exact filename override
-JAR_GLOB="${JAR_GLOB:-}"       # glob pattern — pick newest match
-JAR_PRIORITY="${JAR_PRIORITY:-libraries-first}"  # libraries-first | root-first | newest-anywhere
+SERVER_JAR="${SERVER_JAR:-}"
+JAR_GLOB="${JAR_GLOB:-}"
+JAR_PRIORITY="${JAR_PRIORITY:-libraries-first}"
 
-log(){ echo "[start] $*"; }
-die(){ echo "[start] ERROR: $*" >&2; exit 1; }
+log(){ printf "[start] %s\n" "$*"; }
 
-ensure_eula(){
+write_eula(){
   if [[ ! -f eula.txt ]]; then
-    log "No eula.txt found — creating with eula=true"
     echo "eula=true" > eula.txt
+    log "Wrote eula.txt"
   fi
 }
 
-# Return newest match (mtime) among args/patterns
-pick_newest(){
-  local newest="" f
-  for pat in "$@"; do
-    # shellcheck disable=SC2086
-    for f in $pat; do
-      [[ -f "$f" ]] || continue
-      if [[ -z "$newest" || "$f" -nt "$newest" ]]; then
-        newest="$f"
-      fi
-    done
-  done
-  [[ -n "$newest" ]] && printf '%s\n' "$newest" || true
-}
-
-auto_detect(){
+pick_jar(){
+  # 1) explicit file
+  if [[ -n "$SERVER_JAR" && -f "$SERVER_JAR" ]]; then
+    echo "$SERVER_JAR"; return
+  fi
+  # 2) glob
+  if [[ -n "$JAR_GLOB" ]]; then
+    mapfile -t matches < <(ls -1t $JAR_GLOB 2>/dev/null || true)
+    if (( ${#matches[@]} )); then echo "${matches[0]}"; return; fi
+  fi
+  # 3) priority
   case "$JAR_PRIORITY" in
     libraries-first)
-      pick_newest \
-        "libraries/*/*/*/*/neoforge-*-server.jar" \
-        "libraries/*/*/*/*/forge-*-server.jar" \
-        "*.jar"
+      # NeoForge/Forge usually place launcher in libraries/<...>.jar
+      mapfile -t libs < <(find libraries -maxdepth 3 -type f -name "*.jar" -printf "%T@ %p\n" 2>/dev/null | sort -nr | awk '{print $2}')
+      if (( ${#libs[@]} )); then echo "${libs[0]}"; return; fi
       ;;
     root-first)
-      pick_newest \
-        "*.jar" \
-        "libraries/*/*/*/*/neoforge-*-server.jar" \
-        "libraries/*/*/*/*/forge-*-server.jar"
+      mapfile -t roots < <(ls -1t *.jar 2>/dev/null || true)
+      if (( ${#roots[@]} )); then echo "${roots[0]}"; return; fi
       ;;
     newest-anywhere)
-      pick_newest \
-        "libraries/*/*/*/*/*.jar" \
-        "*.jar"
-      ;;
-    *)
-      pick_newest \
-        "libraries/*/*/*/*/neoforge-*-server.jar" \
-        "libraries/*/*/*/*/forge-*-server.jar" \
-        "*.jar"
+      mapfile -t any < <(find . -type f -name "*.jar" -printf "%T@ %p\n" 2>/dev/null | sort -nr | awk '{print $2}')
+      if (( ${#any[@]} )); then echo "${any[0]}"; return; fi
       ;;
   esac
-}
-
-select_jar(){
-  # 1) exact filename override
-  if [[ -n "$SERVER_JAR" ]]; then
-    [[ -f "$SERVER_JAR" ]] || die "SERVER_JAR set but not found: $SERVER_JAR"
-    echo "$SERVER_JAR"; return 0
-  fi
-
-  # 2) glob pattern — pick newest match
-  if [[ -n "$JAR_GLOB" ]]; then
-    local m=""
-    # shellcheck disable=SC2086
-    m=$(pick_newest $JAR_GLOB) || true
-    [[ -n "$m" ]] || die "JAR_GLOB set but no matches found: $JAR_GLOB"
-    echo "$m"; return 0
-  fi
-
-  # 3) fallback: auto-detect
-  local auto=""
-  auto="$(auto_detect || true)"
-  [[ -n "$auto" ]] && { echo "$auto"; return 0; }
-
+  # 4) last resort
+  mapfile -t roots < <(ls -1t *.jar 2>/dev/null || true)
+  if (( ${#roots[@]} )); then echo "${roots[0]}"; return; fi
   return 1
 }
 
-ensure_eula
+write_eula
+JAR="$(pick_jar || true)"
+if [[ -z "${JAR:-}" ]]; then
+  echo "[start] Could not locate a server jar. Set SERVER_JAR or JAR_GLOB, or check your pack."
+  exit 10
+fi
 
-JAR="$(select_jar || true)"
-[[ -n "${JAR:-}" ]] || die "Could not locate a server jar (set SERVER_JAR or JAR_GLOB)."
-
-log "Launching: $JAR with -Xms$XMS -Xmx$XMX"
+log "Using JAR: $JAR"
 exec "$JAVA" -Xms"$XMS" -Xmx"$XMX" $ARGS -jar "$JAR" nogui

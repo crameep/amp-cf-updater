@@ -1,16 +1,16 @@
 [
   {
     "Protocol": "TCP",
-    "Port": "25565",
-    "Name": "GamePort",
-    "Description": "Minecraft Server",
-    "Ref": "GamePort"
+    "Port": 25565,
+    "Ref": "GamePort",
+    "Name": "Game Port",
+    "Description": "Minecraft gameplay traffic"
   },
   {
     "Protocol": "TCP",
-    "Port": "25575",
-    "Name": "RconPort",
-    "Description": "RCON (optional)",
-    "Ref": "RconPort"
+    "Port": 25575,
+    "Ref": "RconPort",
+    "Name": "RCON Port",
+    "Description": "RCON management port"
   }
 ]

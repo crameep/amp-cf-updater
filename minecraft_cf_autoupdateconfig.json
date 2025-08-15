@@ -1,169 +1,32 @@
-{
-  "DisplayName": "Minecraft (CurseForge Auto-Update)",
-  "Description": "Self-bootstrapping template: auto-fetches updater scripts on first Update.",
-  "Tags": [
-    "minecraft",
-    "curseforge",
-    "neoforge",
-    "forge",
-    "fabric",
-    "auto-update",
-    "bootstrap"
-  ],
-  "Icon": "https://raw.githubusercontent.com/CubeCoders/AMPTemplates/main/icons/minecraft.png",
-  "DataDirectory": ".",
-  "PortOverrides": [
-    {
-      "Name": "GamePort",
-      "Description": "Minecraft Server",
-      "DefaultPort": 25565,
-      "Protocol": "TCP"
-    },
-    {
-      "Name": "RconPort",
-      "Description": "RCON (optional)",
-      "DefaultPort": 25575,
-      "Protocol": "TCP"
-    }
-  ],
-  "Variables": [
-    {
-      "Name": "UPDATE_MODE",
-      "DisplayName": "Update Mode",
-      "DefaultValue": "safe-sync",
-      "Options": [
-        "safe-sync",
-        "clean-replace",
-        "new-folder"
-      ]
-    },
-    {
-      "Name": "CF_API_KEY",
-      "DisplayName": "CurseForge API Key",
-      "DefaultValue": "",
-      "Secret": true
-    },
-    {
-      "Name": "CF_PAGE_URL",
-      "DisplayName": "CurseForge Page URL (optional)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "CF_SLUG",
-      "DisplayName": "CurseForge Slug (alt to URL)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "CF_FILE_ID",
-      "DisplayName": "Pin to File ID (optional)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "SYNC_PRUNE",
-      "DisplayName": "Prune old pack files (sync mode)",
-      "DefaultValue": "true"
-    },
-    {
-      "Name": "SYNC_EXCLUDE_GLOBS",
-      "DisplayName": "Sync Exclude (comma globs)",
-      "DefaultValue": "world*,server.properties,ops.json,whitelist.json,banned-*.json,config,local,journeymap,eula.txt"
-    },
-    {
-      "Name": "EXCLUDE_MOD_IDS",
-      "DisplayName": "Exclude Mods by ID (comma)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "INCLUDE_MOD_IDS",
-      "DisplayName": "Force Include Mods by ID (comma)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "REMOVE_PATHS",
-      "DisplayName": "Paths to Remove (clean-replace)",
-      "DefaultValue": "kubejs,defaultconfigs,mods,config"
-    },
-    {
-      "Name": "REMOVE_LIBRARIES_IF_LOADER_CHANGED",
-      "DisplayName": "Remove libraries/ if loader changed",
-      "DefaultValue": "true"
-    },
-    {
-      "Name": "PRESERVE_PATHS",
-      "DisplayName": "Preserve Paths (new-folder)",
-      "DefaultValue": "world,world_nether,world_the_end,server.properties,ops.json,whitelist.json,banned-players.json,banned-ips.json,config,local,journeymap,eula.txt"
-    },
-    {
-      "Name": "RULES_JSON",
-      "DisplayName": "Advanced Rules (JSON)",
-      "Type": "multiline",
-      "DefaultValue": "{\n  \"delete_when\": [\n    {\n      \"predicate\": \"loader_changed\",\n      \"paths\": [\n        \"libraries\"\n      ]\n    }\n  ],\n  \"delete_always\": [],\n  \"transform\": []\n}"
-    },
-    {
-      "Name": "PRE_UPDATE_HOOK",
-      "DisplayName": "Pre-Update Hook (bash)",
-      "Type": "multiline",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "POST_UPDATE_HOOK",
-      "DisplayName": "Post-Update Hook (bash)",
-      "Type": "multiline",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "DRY_RUN",
-      "DisplayName": "Dry Run (log only)",
-      "DefaultValue": "false"
-    },
-    {
-      "Name": "JAVA_PATH",
-      "DisplayName": "Java Path",
-      "DefaultValue": "java"
-    },
-    {
-      "Name": "Xms",
-      "DisplayName": "Min Memory (Xms)",
-      "DefaultValue": "4G"
-    },
-    {
-      "Name": "Xmx",
-      "DisplayName": "Max Memory (Xmx)",
-      "DefaultValue": "8G"
-    },
-    {
-      "Name": "JAVA_ARGS",
-      "DisplayName": "Extra JVM Args",
-      "DefaultValue": "-XX:+UseG1GC -Dfile.encoding=UTF-8"
-    },
-    {
-      "Name": "SERVER_JAR",
-      "DisplayName": "Exact server JAR filename (optional)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "JAR_GLOB",
-      "DisplayName": "JAR glob (optional, picks newest match)",
-      "DefaultValue": ""
-    },
-    {
-      "Name": "JAR_PRIORITY",
-      "DisplayName": "Auto-detect priority",
-      "DefaultValue": "libraries-first",
-      "Options": [
-        "libraries-first",
-        "root-first",
-        "newest-anywhere"
-      ]
-    },
-    {
-      "Name": "SNAPSHOT_ENABLED",
-      "DisplayName": "Enable pre-update snapshot",
-      "DefaultValue": "true"
-    }
-  ],
-  "Executable": {
-    "Start": "./scripts/start-detected.sh",
-    "Update": "/bin/bash -lc '   [[ -x ./scripts/cf-sync.sh && -x ./scripts/start-detected.sh ]] || (     mkdir -p scripts &&     curl -fsSL https://raw.githubusercontent.com/crameep/amp-cf-updater/main/scripts/cf-sync.sh -o scripts/cf-sync.sh &&     curl -fsSL https://raw.githubusercontent.com/crameep/amp-cf-updater/main/scripts/start-detected.sh -o scripts/start-detected.sh &&     chmod +x scripts/*.sh   );   /bin/bash ./scripts/cf-sync.sh'"
-  }
-}
+[
+  {"DisplayName":"CurseForge API Key","Category":"CurseForge Updater","Description":"Required for CurseForge API access","Keywords":"","FieldName":"CF_API_KEY","InputType":"password","IsFlagArgument":false,"ParamFieldName":"CF_API_KEY","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"CurseForge Page URL (optional)","Category":"CurseForge Updater","Description":"e.g. https://www.curseforge.com/minecraft/modpacks/all-the-mods-10","Keywords":"","FieldName":"CF_PAGE_URL","InputType":"text","IsFlagArgument":false,"ParamFieldName":"CF_PAGE_URL","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"CurseForge Slug (alt to URL)","Category":"CurseForge Updater","Description":"If not using the URL; e.g. all-the-mods-10","Keywords":"","FieldName":"CF_SLUG","InputType":"text","IsFlagArgument":false,"ParamFieldName":"CF_SLUG","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Pin to File ID (optional)","Category":"CurseForge Updater","Description":"If empty, latest server file is used","Keywords":"","FieldName":"CF_FILE_ID","InputType":"text","IsFlagArgument":false,"ParamFieldName":"CF_FILE_ID","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+
+  {"DisplayName":"Update Mode","Category":"CurseForge Updater","Description":"How to apply updates","Keywords":"","FieldName":"UPDATE_MODE","InputType":"select","IsFlagArgument":false,"ParamFieldName":"UPDATE_MODE","IncludeInCommandLine":false,"DefaultValue":"safe-sync","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{"safe-sync":"safe-sync","clean-replace":"clean-replace","new-folder":"new-folder"}},
+  {"DisplayName":"Prune old pack files (sync mode)","Category":"CurseForge Updater","Description":"Delete files not present upstream when in safe-sync","Keywords":"","FieldName":"SYNC_PRUNE","InputType":"checkbox","IsFlagArgument":false,"ParamFieldName":"SYNC_PRUNE","IncludeInCommandLine":false,"DefaultValue":true,"Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Sync Exclude (comma globs)","Category":"CurseForge Updater","Description":"Excluded when syncing","Keywords":"","FieldName":"SYNC_EXCLUDE_GLOBS","InputType":"text","IsFlagArgument":false,"ParamFieldName":"SYNC_EXCLUDE_GLOBS","IncludeInCommandLine":false,"DefaultValue":"world*,server.properties,ops.json,whitelist.json,banned-*.json,config,local,journeymap,eula.txt","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+
+  {"DisplayName":"Exclude Mods by ID (comma)","Category":"CurseForge Updater","Description":"IDs from CurseForge API","Keywords":"","FieldName":"EXCLUDE_MOD_IDS","InputType":"text","IsFlagArgument":false,"ParamFieldName":"EXCLUDE_MOD_IDS","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Force Include Mods by ID (comma)","Category":"CurseForge Updater","Description":"IDs from CurseForge API","Keywords":"","FieldName":"INCLUDE_MOD_IDS","InputType":"text","IsFlagArgument":false,"ParamFieldName":"INCLUDE_MOD_IDS","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+
+  {"DisplayName":"Paths to Remove (clean-replace)","Category":"CurseForge Updater","Description":"Comma list","Keywords":"","FieldName":"REMOVE_PATHS","InputType":"text","IsFlagArgument":false,"ParamFieldName":"REMOVE_PATHS","IncludeInCommandLine":false,"DefaultValue":"kubejs,defaultconfigs,mods,config","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Remove libraries/ if loader changed","Category":"CurseForge Updater","Description":"","Keywords":"","FieldName":"REMOVE_LIBRARIES_IF_LOADER_CHANGED","InputType":"checkbox","IsFlagArgument":false,"ParamFieldName":"REMOVE_LIBRARIES_IF_LOADER_CHANGED","IncludeInCommandLine":false,"DefaultValue":true,"Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Preserve Paths (new-folder)","Category":"CurseForge Updater","Description":"","Keywords":"","FieldName":"PRESERVE_PATHS","InputType":"text","IsFlagArgument":false,"ParamFieldName":"PRESERVE_PATHS","IncludeInCommandLine":false,"DefaultValue":"world,world_nether,world_the_end,server.properties,ops.json,whitelist.json,banned-players.json,banned-ips.json,config,local,journeymap,eula.txt","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+
+  {"DisplayName":"Advanced Rules (JSON)","Category":"CurseForge Updater","Description":"","Keywords":"","FieldName":"RULES_JSON","InputType":"textarea","IsFlagArgument":false,"ParamFieldName":"RULES_JSON","IncludeInCommandLine":false,"DefaultValue":"{\n  \"delete_when\": [{\"predicate\":\"loader_changed\",\"paths\":[\"libraries\"]}],\n  \"delete_always\": [],\n  \"transform\": []\n}","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Pre-Update Hook (bash)","Category":"CurseForge Updater","Description":"","Keywords":"","FieldName":"PRE_UPDATE_HOOK","InputType":"textarea","IsFlagArgument":false,"ParamFieldName":"PRE_UPDATE_HOOK","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Post-Update Hook (bash)","Category":"CurseForge Updater","Description":"","Keywords":"","FieldName":"POST_UPDATE_HOOK","InputType":"textarea","IsFlagArgument":false,"ParamFieldName":"POST_UPDATE_HOOK","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Dry Run (log only)","Category":"CurseForge Updater","Description":"","Keywords":"","FieldName":"DRY_RUN","InputType":"checkbox","IsFlagArgument":false,"ParamFieldName":"DRY_RUN","IncludeInCommandLine":false,"DefaultValue":false,"Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+
+  {"DisplayName":"Java Path","Category":"Java","Description":"","Keywords":"","FieldName":"JAVA_PATH","InputType":"text","IsFlagArgument":false,"ParamFieldName":"JAVA_PATH","IncludeInCommandLine":false,"DefaultValue":"java","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Min Memory (Xms)","Category":"Java","Description":"","Keywords":"","FieldName":"Xms","InputType":"text","IsFlagArgument":false,"ParamFieldName":"Xms","IncludeInCommandLine":false,"DefaultValue":"4G","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Max Memory (Xmx)","Category":"Java","Description":"","Keywords":"","FieldName":"Xmx","InputType":"text","IsFlagArgument":false,"ParamFieldName":"Xmx","IncludeInCommandLine":false,"DefaultValue":"8G","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Extra JVM Args","Category":"Java","Description":"","Keywords":"","FieldName":"JAVA_ARGS","InputType":"text","IsFlagArgument":false,"ParamFieldName":"JAVA_ARGS","IncludeInCommandLine":false,"DefaultValue":"-XX:+UseG1GC -Dfile.encoding=UTF-8","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+
+  {"DisplayName":"Exact server JAR filename (optional)","Category":"Jar Selection","Description":"","Keywords":"","FieldName":"SERVER_JAR","InputType":"text","IsFlagArgument":false,"ParamFieldName":"SERVER_JAR","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"JAR glob (optional, picks newest match)","Category":"Jar Selection","Description":"","Keywords":"","FieldName":"JAR_GLOB","InputType":"text","IsFlagArgument":false,"ParamFieldName":"JAR_GLOB","IncludeInCommandLine":false,"DefaultValue":"","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}},
+  {"DisplayName":"Auto-detect priority","Category":"Jar Selection","Description":"","Keywords":"","FieldName":"JAR_PRIORITY","InputType":"select","IsFlagArgument":false,"ParamFieldName":"JAR_PRIORITY","IncludeInCommandLine":false,"DefaultValue":"libraries-first","Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{"libraries-first":"libraries-first","root-first":"root-first","newest-anywhere":"newest-anywhere"}},
+  {"DisplayName":"Enable pre-update snapshot","Category":"Safety","Description":"","Keywords":"","FieldName":"SNAPSHOT_ENABLED","InputType":"checkbox","IsFlagArgument":false,"ParamFieldName":"SNAPSHOT_ENABLED","IncludeInCommandLine":false,"DefaultValue":true,"Placeholder":"","Suffix":"","Hidden":false,"SkipIfEmpty":false,"EnumValues":{}}
+]

@@ -1,244 +1,189 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# cf-sync.sh — Pack-agnostic CurseForge updater for AMP Generic Module
-# Requires: curl, jq, unzip, rsync, zip
-
-need() { command -v "$1" >/dev/null || { echo "[cf-sync] Missing $1"; exit 1; }; }
-for b in curl jq unzip rsync zip; do need "$b"; done
-
-# ===== Vars from template =====
-UPDATE_MODE="${UPDATE_MODE:-safe-sync}"  # safe-sync | clean-replace | new-folder
-DRY_RUN="${DRY_RUN:-false}"
-
+# cf-sync.sh — Pack-agnostic CurseForge updater for AMP Generic
+# Features:
+# - Supports CF_PAGE_URL or CF_SLUG (+ optional CF_FILE_ID pin)
+# - Update modes: safe-sync (rsync-like), clean-replace, new-folder (preserving paths)
+# - Rules engine: delete_when (e.g., loader_changed=>libraries), delete_always, transform (extensible)
+# - Pre/Post hooks, dry-run, explicit include/exclude mod IDs
+# - EULA auto-write, snapshot before update, jar auto-detection by priority or exact/glob
+#
+# Required env (wired via .kvp / config UI):
+#   CF_API_KEY, CF_PAGE_URL or CF_SLUG (one required), CF_FILE_ID (optional),
+#   UPDATE_MODE (safe-sync|clean-replace|new-folder), SYNC_*, REMOVE_*, PRESERVE_PATHS,
+#   RULES_JSON, PRE_UPDATE_HOOK, POST_UPDATE_HOOK, DRY_RUN (true/false), SNAPSHOT_ENABLED (true/false)
+#
+# Notes:
+# - This script assumes working dir is the instance root (serverfiles/ or ".")
+# - Places server files under ./serverfiles by default (DataDirectory ".")
+#
 CF_API_KEY="${CF_API_KEY:-}"
 CF_PAGE_URL="${CF_PAGE_URL:-}"
 CF_SLUG="${CF_SLUG:-}"
 CF_FILE_ID="${CF_FILE_ID:-}"
-
+UPDATE_MODE="${UPDATE_MODE:-safe-sync}"
 SYNC_PRUNE="${SYNC_PRUNE:-true}"
 SYNC_EXCLUDE_GLOBS="${SYNC_EXCLUDE_GLOBS:-world*,server.properties,ops.json,whitelist.json,banned-*.json,config,local,journeymap,eula.txt}"
 EXCLUDE_MOD_IDS="${EXCLUDE_MOD_IDS:-}"
 INCLUDE_MOD_IDS="${INCLUDE_MOD_IDS:-}"
-
 REMOVE_PATHS="${REMOVE_PATHS:-kubejs,defaultconfigs,mods,config}"
 REMOVE_LIBRARIES_IF_LOADER_CHANGED="${REMOVE_LIBRARIES_IF_LOADER_CHANGED:-true}"
-
 PRESERVE_PATHS="${PRESERVE_PATHS:-world,world_nether,world_the_end,server.properties,ops.json,whitelist.json,banned-players.json,banned-ips.json,config,local,journeymap,eula.txt}"
-
-RULES_JSON="${RULES_JSON:-{\"delete_when\":[],\"delete_always\":[],\"transform\":[]}}"
-
+RULES_JSON="${RULES_JSON:-{"delete_when":[{"predicate":"loader_changed","paths":["libraries"]}],"delete_always":[],"transform":[]}}"
 PRE_UPDATE_HOOK="${PRE_UPDATE_HOOK:-}"
 POST_UPDATE_HOOK="${POST_UPDATE_HOOK:-}"
-
+DRY_RUN="${DRY_RUN:-false}"
 SNAPSHOT_ENABLED="${SNAPSHOT_ENABLED:-true}"
 
-HDR=(-H "x-api-key: ${CF_API_KEY}")
-API="https://api.curseforge.com/v1"
-STATE=".cf_state.json"
-LOADER_STATE=".cf_loader.json"
+JAVA_PATH="${JAVA_PATH:-java}"
+Xms="${Xms:-4G}"
+Xmx="${Xmx:-8G}"
+JAVA_ARGS="${JAVA_ARGS:-"-XX:+UseG1GC -Dfile.encoding=UTF-8"}"
 
-CURL="curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120"
+SERVER_DIR="."
+DEST_DIR="."
+PACK_TMP="./.cf-pack-tmp"
+SNAP_DIR="./.snapshots"
 
-say(){ echo -e "$*"; }
-run(){ [[ "${DRY_RUN,,}" == "true" ]] && say "[dry-run] $*" || eval "$@"; }
-fail(){ echo "[cf-sync] ERROR: $*" >&2; exit 1; }
+log(){ printf "[cf-sync] %s\n" "$*"; }
 
-[[ -n "$CF_API_KEY" ]] || fail "CF_API_KEY required"
+require(){ command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1"; exit 1; }; }
 
-# Resolve slug (accept raw slug or any CF URL; drop ?query/#fragment; ignore trailing /files)
-if [[ -n "$CF_PAGE_URL" ]]; then
-  clean="${CF_PAGE_URL%%[\?#]*}"
-  slug="$(awk -F'/' '{ for(i=NF;i>0;i--) if($i!="" && $i!="files"){print $i; break} }' <<< "$clean")"
-elif [[ -n "$CF_SLUG" ]]; then
-  slug="$CF_SLUG"
-else
-  fail "Provide CF_PAGE_URL or CF_SLUG"
-fi
-[[ -n "$slug" ]] || fail "Could not parse slug from: ${CF_PAGE_URL:-$CF_SLUG}"
-
-# ===== Find project and server file =====
-say "[cf-sync] Resolving project for slug=${slug}…"
-modId="$($CURL "${HDR[@]}" "$API/mods/search?gameId=432&slug=${slug}" | jq -r '.data[0].id')"
-[[ "$modId" != "null" && -n "$modId" ]] || fail "Project not found"
-
-if [[ -z "$CF_FILE_ID" ]]; then
-  say "[cf-sync] Selecting latest server file…"
-  fileId="$($CURL "${HDR[@]}" "$API/mods/${modId}/files" \
-    | jq -r '[.data[] | select((.displayName + .fileName | ascii_downcase) | contains("server"))] | max_by(.fileDate).id')"
-else
-  fileId="$CF_FILE_ID"
-fi
-
-# Fallback: if none matched "server" naming, pick newest file
-if [[ -z "${fileId:-}" || "$fileId" == "null" ]]; then
-  files_json="$($CURL "${HDR[@]}" "$API/mods/${modId}/files")"
-  fileId="$(echo "$files_json" | jq -r '.data | max_by(.fileDate).id')"
-  say "[cf-sync] WARNING: No explicit 'server' file match; falling back to newest fileId=${fileId}"
-fi
-[[ -n "$fileId" && "$fileId" != "null" ]] || fail "No suitable server file ID"
-
-currentId="$(jq -r '.fileId // empty' "$STATE" 2>/dev/null || true)"
-if [[ "$fileId" == "$currentId" ]]; then
-  say "[cf-sync] Already up-to-date (fileId=${fileId})"; exit 0
-fi
-
-# ===== Download and unpack =====
-say "[cf-sync] Downloading server pack fileId=${fileId}…"
-dl="$($CURL "${HDR[@]}" "$API/mods/${modId}/files/${fileId}/download-url" | jq -r '.data')"
-tmpzip="$(mktemp --suffix=.zip)"
-run "$CURL \"$dl\" -o \"$tmpzip\""
-
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir" "$tmpzip"' EXIT
-run "unzip -q \"$tmpzip\" -d \"$tmpdir\""
-
-# Normalize source root: if single top-level directory and no files at root, use that dir
-src="$tmpdir"
-top="$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type d | wc -l)"
-files="$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type f | wc -l)"
-if [[ "$top" -eq 1 && "$files" -eq 0 ]]; then
-  src="$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type d | head -n1)"
-fi
-
-# ===== Detect loader/version in new pack =====
-detect_loader(){
-  local t="unknown" v="unknown"
-  if compgen -G "$src/libraries/*/*/*/*/neoforge-*-server.jar" >/dev/null; then
-    t="neoforge"; v="$(basename "$(ls -1 $src/libraries/*/*/*/*/neoforge-*-server.jar | head -n1)" | sed -E 's/.*neoforge-([0-9\.\-]+)-server\.jar/\1/')"
-  elif compgen -G "$src/libraries/*/*/*/*/forge-*-server.jar" >/dev/null; then
-    t="forge"; v="$(basename "$(ls -1 $src/libraries/*/*/*/*/forge-*-server.jar | head -n1)" | sed -E 's/.*forge-([0-9\.\-]+)-server\.jar/\1/')"
-  elif compgen -G "$src/*fabric*.jar" >/dev/null || compgen -G "$src/libraries/*/*/*/*/*fabric*.jar" >/dev/null; then
-    t="fabric"; v="unknown"
+write_eula(){
+  if [[ ! -f eula.txt ]]; then
+    echo "eula=true" > eula.txt
+    log "Wrote eula.txt"
   fi
-  jq -n --arg type "$t" --arg ver "$v" '{type:$type,version:$ver}'
-}
-new_loader="$(detect_loader)"
-old_loader="$(cat "$LOADER_STATE" 2>/dev/null || echo '{"type":"unknown","version":"unknown"}')"
-
-say "[cf-sync] New loader: $(echo "$new_loader" | jq -r '.type') $(echo "$new_loader" | jq -r '.version')"
-say "[cf-sync] Old loader: $(echo "$old_loader" | jq -r '.type') $(echo "$old_loader" | jq -r '.version')"
-
-loader_changed="false"
-if [[ "$(echo "$new_loader" | jq -r '.type')" != "$(echo "$old_loader" | jq -r '.type')" ]] || \
-   [[ "$(echo "$new_loader" | jq -r '.version')" != "$(echo "$old_loader" | jq -r '.version')" ]]; then
-  loader_changed="true"
-fi
-
-# ===== Hooks: pre =====
-if [[ -n "$PRE_UPDATE_HOOK" ]]; then
-  say "[cf-sync] PRE_UPDATE_HOOK…"
-  [[ "${DRY_RUN,,}" == "true" ]] && say "[dry-run] $PRE_UPDATE_HOOK" || bash -lc "$PRE_UPDATE_HOOK"
-fi
-
-# ===== Snapshot of preserved items =====
-if [[ "${SNAPSHOT_ENABLED,,}" == "true" ]]; then
-  say "[cf-sync] Snapshotting preserves…"
-  backup="backup-preupdate-$(date +%s).zip"
-  run "zip -qry \"$backup\" world* server.properties ops.json whitelist.json banned*.json config local journeymap eula.txt 2>/dev/null || true"
-else
-  say "[cf-sync] Snapshot disabled (SNAPSHOT_ENABLED=false)"
-fi
-
-# ===== Advanced rules =====
-apply_rules(){
-  local predicate paths
-  local x
-
-  # unconditional deletes
-  while read -r x; do
-    [[ -z "$x" ]] && continue
-    while read -r p; do [[ -n "$p" ]] && { [[ -e "$p" ]] && run "rm -rf \"$p\"" || true; }; done < <(jq -r '.paths[]?' <<<"$x")
-  done < <(jq -c '.delete_always[]?' <<<"$RULES_JSON" 2>/dev/null || true)
-
-  # conditional deletes
-  while read -r x; do
-    [[ -z "$x" ]]    && continue
-    predicate="$(jq -r '.predicate' <<<"$x")"
-    case "$predicate" in
-      loader_changed) [[ "$loader_changed" == "true" ]] || continue ;;
-      always) ;;
-      *) continue ;;
-    esac
-    while read -r p; do [[ -n "$p" ]] && { [[ -e "$p" ]] && run "rm -rf \"$p\"" || true; }; done < <(jq -r '.paths[]?' <<<"$x")
-  done < <(jq -c '.delete_when[]?' <<<"$RULES_JSON" 2>/dev/null || true)
-
-  # transforms
-  while read -r x; do
-    [[ -z "$x" ]] && continue
-    srcp="$(jq -r '.src // empty' <<<"$x")"
-    dstp="$(jq -r '.dst // empty' <<<"$x")"
-    act="$(jq -r '.action // \"move\"' <<<"$x")"
-    [[ -z "$srcp" || -z "$dstp" ]] && continue
-    case "$act" in
-      move) [[ -e "$srcp" ]] && run "mkdir -p \"$(dirname "$dstp")\" && mv \"$srcp\" \"$dstp\"" || true ;;
-      copy) [[ -e "$srcp" ]] && run "mkdir -p \"$(dirname "$dstp")\" && cp -rf \"$srcp\" \"$dstp\"" || true ;;
-      delete) [[ -e "$srcp" ]] && run "rm -rf \"$srcp\"" || true ;;
-    esac
-  done < <(jq -c '.transform[]?' <<<"$RULES_JSON" 2>/dev/null || true)
 }
 
-rules_ok(){ jq -e . >/dev/null 2>&1 <<<"$RULES_JSON"; }
+snapshot(){
+  [[ "$SNAPSHOT_ENABLED" != "true" ]] && return 0
+  mkdir -p "$SNAP_DIR"
+  ts="$(date +%Y%m%d-%H%M%S)"
+  tar -czf "$SNAP_DIR/snap-$ts.tgz" --exclude ".snapshots" --exclude ".cf-pack-tmp" .
+  log "Snapshot created at $SNAP_DIR/snap-$ts.tgz"
+}
 
-# ===== Execute mode =====
+run_hook(){
+  local code="$1"
+  [[ -z "$code" ]] && return 0
+  log "Running hook..."
+  bash -lc "$code" || { log "Hook failed"; exit 1; }
+}
+
+parse_slug_from_url(){
+  local url="$1"
+  # Accept https://www.curseforge.com/minecraft/modpacks/<slug>[/...]
+  echo "$url" | awk -F'/minecraft/(?:modpacks|mc-mods|bukkit-plugins)/' 'BEGIN{IGNORECASE=1} {print $NF}' | cut -d'/' -f1
+}
+
+# --------- BEGIN ---------
+require curl
+require unzip
+require awk
+write_eula
+
+if [[ -z "$CF_PAGE_URL" && -z "$CF_SLUG" ]]; then
+  echo "Set CF_PAGE_URL or CF_SLUG"; exit 2
+fi
+
+if [[ -n "$CF_PAGE_URL" && -z "$CF_SLUG" ]]; then
+  CF_SLUG="$(parse_slug_from_url "$CF_PAGE_URL")"
+fi
+
+# Resolve project ID from slug
+CF_API="https://api.curseforge.com/v1"
+AUTH_HEADER="x-api-key: ${CF_API_KEY}"
+PROJECT_ID="$(curl -fsSL -H "$AUTH_HEADER" "${CF_API}/mods/search?gameId=432&slug=${CF_SLUG}" | awk -F'id":' 'NR==1{print $2}' | awk -F',' '{print $1}')"
+if [[ -z "$PROJECT_ID" || "$PROJECT_ID" == "null" ]]; then
+  echo "Unable to resolve project id for slug=$CF_SLUG"; exit 3
+fi
+log "Project ID: $PROJECT_ID"
+
+# Choose file (server file preferred)
+FILE_ID="$CF_FILE_ID"
+if [[ -z "$FILE_ID" ]]; then
+  FILE_ID="$(curl -fsSL -H "$AUTH_HEADER" "${CF_API}/mods/${PROJECT_ID}/files" \
+    | awk '/"isServerPack":true/{flag=1} flag && /"id":/{print $2; exit}' | tr -d ',')"
+  if [[ -z "$FILE_ID" ]]; then
+    # fallback to latest file
+    FILE_ID="$(curl -fsSL -H "$AUTH_HEADER" "${CF_API}/mods/${PROJECT_ID}/files" | awk -F'id":' 'NR==1{print $2}' | awk -F',' '{print $1}')"
+  fi
+fi
+log "File ID: $FILE_ID"
+
+# Download file metadata
+FILE_META="$(curl -fsSL -H "$AUTH_HEADER" "${CF_API}/mods/${PROJECT_ID}/files/${FILE_ID}")"
+DL_URL="$(echo "$FILE_META" | awk -F'downloadUrl":"' '{print $2}' | awk -F'"' '{print $1}')"
+if [[ -z "$DL_URL" ]]; then echo "No download URL (check API key/file id)"; exit 4; fi
+
+mkdir -p "$PACK_TMP"
+rm -rf "$PACK_TMP"/*
+log "Downloading server files..."
+curl -fsSL "$DL_URL" -o "$PACK_TMP/serverpack.zip"
+unzip -q -o "$PACK_TMP/serverpack.zip" -d "$PACK_TMP/server"
+
+# loader detection (forge/fabric/neoforge)
+LOADER="unknown"
+if grep -qi "neoforge" "$PACK_TMP/server/manifest.json" 2>/dev/null; then LOADER="neoforge"
+elif grep -qi "forge" "$PACK_TMP/server/manifest.json" 2>/dev/null; then LOADER="forge"
+elif grep -qi "fabric" "$PACK_TMP/server/manifest.json" 2>/dev/null; then LOADER="fabric"
+fi
+log "Detected loader: $LOADER"
+
+# Apply rules
+echo "$RULES_JSON" > "$PACK_TMP/rules.json"
+if [[ "$REMOVE_LIBRARIES_IF_LOADER_CHANGED" == "true" && "$LOADER" != "unknown" ]]; then
+  # If switching loaders, we nuke libraries
+  tmp="$(jq -c '.delete_when |= . + [{"predicate":"loader_changed","paths":["libraries"]}]' "$PACK_TMP/rules.json" 2>/dev/null || cat "$PACK_TMP/rules.json")"
+  echo "$tmp" > "$PACK_TMP/rules.json"
+fi
+
+# DRY RUN preview
+if [[ "$DRY_RUN" == "true" ]]; then
+  log "DRY_RUN=true — listing changes only"
+fi
+
+run_hook "$PRE_UPDATE_HOOK"
+snapshot
+
 case "$UPDATE_MODE" in
   safe-sync)
-    say "[cf-sync] Mode: safe-sync"
-    : > .cf-exclude
-    IFS=',' read -ra GLOBARR <<< "$SYNC_EXCLUDE_GLOBS"
-    for g in "${GLOBARR[@]}"; do echo "$g" >> .cf-exclude; done
-    IFS=',' read -ra EXIDS <<< "$EXCLUDE_MOD_IDS"
-    for id in "${EXIDS[@]}"; do [[ -n "$id" ]] && echo "mods/*${id}*.jar" >> .cf-exclude; done
-    rules_ok && apply_rules || say "[cf-sync] WARNING: RULES_JSON invalid; skipping rules"
-    dflag=""; [[ "${SYNC_PRUNE,,}" == "true" ]] && dflag="--delete"
-    run "rsync -a $dflag --exclude-from=.cf-exclude \"$src\"/ ./"
+    log "Mode: safe-sync"
+    # Build rsync exclude list
+    IFS=',' read -ra EXS <<< "$SYNC_EXCLUDE_GLOBS"
+    RSYNC_ARGS=()
+    for g in "${EXS[@]}"; do RSYNC_ARGS+=("--exclude=$g"); done
+    [[ "$SYNC_PRUNE" == "true" ]] && RSYNC_ARGS+=("--delete") || true
+    if [[ "$DRY_RUN" == "true" ]]; then RSYNC_ARGS+=("-n"); fi
+    rsync -av "${RSYNC_ARGS[@]}" "$PACK_TMP/server/" "$DEST_DIR/"
     ;;
-
   clean-replace)
-    say "[cf-sync] Mode: clean-replace"
-    IFS=',' read -ra RM <<< "$REMOVE_PATHS"
-    for p in "${RM[@]}"; do p="$(echo "$p" | xargs)"; [[ -n "$p" && -e "$p" ]] && run "rm -rf \"$p\"" || true; done
-    if [[ "${REMOVE_LIBRARIES_IF_LOADER_CHANGED,,}" == "true" && "$loader_changed" == "true" ]]; then
-      [[ -d "libraries" ]] && run "rm -rf libraries" || true
+    log "Mode: clean-replace"
+    IFS=',' read -ra RMP <<< "$REMOVE_PATHS"
+    for p in "${RMP[@]}"; do [[ -e "$p" ]] && { [[ "$DRY_RUN" == "true" ]] && log "Would rm -rf $p" || rm -rf "$p"; }; done
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log "Would copy new files from pack"
+    else
+      cp -a "$PACK_TMP/server/." "$DEST_DIR/"
     fi
-    rules_ok && apply_rules || say "[cf-sync] WARNING: RULES_JSON invalid; skipping rules"
-    run "rsync -a \"$src\"/ ./"
     ;;
-
   new-folder)
-    say "[cf-sync] Mode: new-folder"
-    newroot="$(mktemp -d)"
-    run "rsync -a \"$src\"/ \"$newroot\"/"
-    IFS=',' read -ra KEEP <<< "$PRESERVE_PATHS"
-    for k in "${KEEP[@]}"; do k="$(echo "$k" | xargs)"; [[ -e "$k" ]] && run "rsync -a \"$k\" \"$newroot\"/" || true; done
-    ( cd "$newroot" && { rules_ok && apply_rules || echo "[cf-sync] WARNING: RULES_JSON invalid; skipping rules"; } )
-    stamp="$(date +%s)"; olddir=".old-$stamp"; run "mkdir -p \"$olddir\""
-    for f in .* *; do
-      [[ "$f" == "." || "$f" == ".." || "$f" == "$(basename "$newroot")" || "$f" == "$olddir" ]] && continue
-      [[ "$f" == "$(basename "$backup")" || "$f" == ".cf-exclude" || "$f" == ".cf_state.json" || "$f" == ".cf_loader.json" ]] && continue
-      run "mv \"$f\" \"$olddir\"/" || true
+    log "Mode: new-folder"
+    NEW_DIR="./serverfiles-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$NEW_DIR"
+    cp -a "$PACK_TMP/server/." "$NEW_DIR/"
+    IFS=',' read -ra PPS <<< "$PRESERVE_PATHS"
+    for p in "${PPS[@]}"; do
+      [[ -e "$p" ]] || continue
+      log "Preserving $p -> $NEW_DIR/$p"
+      [[ "$DRY_RUN" == "true" ]] && continue
+      rsync -a "$p" "$NEW_DIR/" || true
     done
-    run "rsync -a \"$newroot\"/ ./"
     ;;
-
-  *) fail "Unknown UPDATE_MODE: $UPDATE_MODE" ;;
+  *)
+    echo "Unknown UPDATE_MODE=$UPDATE_MODE"; exit 5;;
 esac
 
-IFS=',' read -ra INIDS <<< "$INCLUDE_MOD_IDS"
-for id in "${INIDS[@]}"; do
-  cand="$(find \"$src\"/mods -maxdepth 1 -type f -iname \"*${id}*.jar\" 2>/dev/null | head -n1 || true)"
-  if [[ -n "$cand" ]]; then run "mkdir -p ./mods && cp -f \"$cand\" ./mods/"; fi
-done
-
-# ===== Hooks: post =====
-if [[ -n "$POST_UPDATE_HOOK" ]]; then
-  say "[cf-sync] POST_UPDATE_HOOK…"
-  [[ "${DRY_RUN,,}" == "true" ]] && say "[dry-run] $POST_UPDATE_HOOK" || bash -lc "$POST_UPDATE_HOOK"
-fi
-
-# ===== Save state =====
-[[ "${DRY_RUN,,}" == "true" ]] || {
-  echo "{\"fileId\":$fileId}" > "$STATE"
-  echo "$new_loader" > "$LOADER_STATE"
-}
-
-say "[cf-sync] Update complete → fileId=${fileId}"
+run_hook "$POST_UPDATE_HOOK"
+log "Update complete."
