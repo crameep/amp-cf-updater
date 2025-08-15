@@ -1,0 +1,12 @@
+[
+  {
+    "UpdateStageName": "Bootstrap & Update",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "Executable",
+    "Executable": "/bin/bash -lc '[[ -x ./scripts/cf-sync.sh && -x ./scripts/start-detected.sh ]] || ( mkdir -p scripts && curl -fsSL https://raw.githubusercontent.com/crameep/amp-cf-updater/main/scripts/cf-sync.sh -o scripts/cf-sync.sh && curl -fsSL https://raw.githubusercontent.com/crameep/amp-cf-updater/main/scripts/start-detected.sh -o scripts/start-detected.sh && chmod +x scripts/*.sh ); /bin/bash ./scripts/cf-sync.sh'",
+    "UnzipUpdateSource": false,
+    "OverwriteExistingFiles": false,
+    "DeleteAfterExtract": true,
+    "OneShot": false
+  }
+]
