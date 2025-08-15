@@ -1,0 +1,16 @@
+[
+  {
+    "Protocol": "TCP",
+    "Port": "25565",
+    "Name": "GamePort",
+    "Description": "Minecraft Server",
+    "Ref": "GamePort"
+  },
+  {
+    "Protocol": "TCP",
+    "Port": "25575",
+    "Name": "RconPort",
+    "Description": "RCON (optional)",
+    "Ref": "RconPort"
+  }
+]
